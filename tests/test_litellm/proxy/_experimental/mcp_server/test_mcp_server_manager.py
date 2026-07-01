@@ -176,6 +176,48 @@ class TestMCPServerManager:
         assert calls == [("", "authz-srv")]
         assert client is not None
 
+    @pytest.mark.asyncio
+    async def test_token_exchange_drops_forwarded_caller_authorization(self):
+        manager = MCPServerManager()
+        server = MCPServer(
+            server_id="obo-srv",
+            name="obo",
+            url="https://upstream.example/mcp",
+            transport=MCPTransport.http,
+            auth_type=MCPAuth.oauth2_token_exchange,
+            token_exchange_endpoint="https://idp.example/token",
+            client_id="cid",
+            client_secret="csecret",
+            extra_headers=["Authorization", "X-Custom"],
+        )
+
+        mock_client = MagicMock()
+        mock_client.call_tool = AsyncMock(return_value=MagicMock())
+
+        with patch.object(
+            manager, "_create_mcp_client", new=AsyncMock(return_value=mock_client)
+        ) as create_client_mock:
+            await manager._call_regular_mcp_tool(
+                mcp_server=server,
+                original_tool_name="echo",
+                arguments={"message": "hello"},
+                tasks=[],
+                mcp_auth_header=None,
+                mcp_server_auth_headers=None,
+                oauth2_headers={"Authorization": "Bearer caller-token"},
+                raw_headers={
+                    "authorization": "Bearer caller-token",
+                    "x-custom": "trace",
+                },
+                proxy_logging_obj=None,
+            )
+
+        create_kwargs = create_client_mock.await_args.kwargs
+        extra_headers = create_kwargs["extra_headers"] or {}
+        assert create_kwargs["subject_token"] == "caller-token"
+        assert "Authorization" not in extra_headers
+        assert extra_headers.get("X-Custom") == "trace"
+
     async def test_create_mcp_client_stdio_injects_npm_config_cache(self):
         """Test that _create_mcp_client injects NPM_CONFIG_CACHE when not already set,
         and preserves user-provided NPM_CONFIG_CACHE when present."""

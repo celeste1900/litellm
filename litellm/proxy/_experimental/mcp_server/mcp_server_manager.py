@@ -195,10 +195,10 @@ def _should_strip_caller_authorization(
     Strip rules:
     - **M2M (client_credentials) servers**: never forward the caller's
       ``Authorization`` — the proxy fetches its own upstream token.
-    - **Migrated per-user OAuth (authorization_code) servers**: never forward
-      the caller's ``Authorization`` — the v2 resolver injects the stored
-      per-user token, so a caller-supplied bearer cannot override another
-      user's stored credential. Delegate / pass-through keep forwarding it.
+    - **Migrated v2-managed OAuth servers**: never forward the caller's
+      ``Authorization`` — the v2 resolver injects the stored per-user token or
+      exchanged OBO token, so a caller-supplied bearer cannot override the
+      resolved credential. Delegate / pass-through keep forwarding it.
     - **OAuth pass-through servers**: strip when the ``Authorization``
       header is actually the LiteLLM API key — either because admission
       validated it (``user_api_key_auth.api_key`` is set) and the caller
@@ -211,11 +211,12 @@ def _should_strip_caller_authorization(
     """
     if mcp_server.has_client_credentials:
         return True
-    if mcp_server.auth_type == MCPAuth.oauth2 and to_server_spec(mcp_server) is not None:
-        # Migrated per-user OAuth (authorization_code): the v2 resolver injects the
-        # stored token, so a caller-forwarded Authorization must not be forwarded
-        # upstream — it would override another user's stored credential. Delegate and
-        # pass-through return None from to_server_spec and keep forwarding the bearer.
+    if (
+        mcp_server.auth_type in (MCPAuth.oauth2, MCPAuth.oauth2_token_exchange)
+        and to_server_spec(mcp_server) is not None
+    ):
+        # Migrated v2-managed OAuth: the resolver injects the stored or exchanged token,
+        # so a caller-forwarded Authorization must not be forwarded upstream.
         return True
     if not mcp_server.is_oauth_passthrough:
         return False
