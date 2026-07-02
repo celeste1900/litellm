@@ -62,7 +62,8 @@ def to_server_spec(server: MCPServer) -> Optional[ServerSpec]:
     explicitly mapped or explicitly deferred, rather than silently falling through to v1. Live
     modes: ``none``, the static-header family (``api_key`` plus the Authorization schemes,
     all shared-key), and ``oauth2`` per-user tokens (``authorization_code``); client_credentials
-    (M2M), delegated/passthrough oauth2, token exchange, and SigV4 return None and stay on v1.
+    (M2M), delegated/passthrough oauth2, token exchange, SigV4, and the ``true_passthrough`` /
+    ``oauth_delegate`` client-forwarded-token modes return None and stay on v1.
     """
     if server.is_byok:
         return None  # per-user BYOK source not migrated yet -> defer to v1 (any auth_type)
@@ -92,8 +93,8 @@ def to_server_spec(server: MCPServer) -> Optional[ServerSpec]:
                 )
             # client_credentials (M2M) and delegate/passthrough oauth2 stay on v1
             return None
-        case MCPAuth.oauth2_token_exchange | MCPAuth.aws_sigv4:
-            return None  # token exchange and SigV4 are not migrated yet -> defer to v1
+        case MCPAuth.oauth2_token_exchange | MCPAuth.aws_sigv4 | MCPAuth.true_passthrough | MCPAuth.oauth_delegate:
+            return None  # token exchange, SigV4, and the passthrough/delegate modes stay on v1
     assert_never(auth_type)
 
 

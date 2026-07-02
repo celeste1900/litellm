@@ -38,6 +38,8 @@ class MCPAuth(str, enum.Enum):
     aws_sigv4 = "aws_sigv4"
     token = "token"
     oauth2_token_exchange = "oauth2_token_exchange"
+    true_passthrough = "true_passthrough"
+    oauth_delegate = "oauth_delegate"
 
 
 # MCP Literals
@@ -54,6 +56,8 @@ MCPAuthType = Optional[
         MCPAuth.aws_sigv4,
         MCPAuth.token,
         MCPAuth.oauth2_token_exchange,
+        MCPAuth.true_passthrough,
+        MCPAuth.oauth_delegate,
     ]
 ]
 

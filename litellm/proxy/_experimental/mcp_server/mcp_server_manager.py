@@ -214,7 +214,7 @@ def _should_strip_caller_authorization(
         # upstream — it would override another user's stored credential. Delegate and
         # pass-through return None from to_server_spec and keep forwarding the bearer.
         return True
-    if not mcp_server.is_oauth_passthrough:
+    if not (mcp_server.is_oauth_passthrough or mcp_server.is_oauth_delegate):
         return False
 
     normalized_raw_headers = {str(k).lower(): v for k, v in (raw_headers or {}).items() if isinstance(k, str)}
@@ -239,6 +239,29 @@ def _without_authorization(
         return None
     filtered = {k: v for k, v in headers.items() if k.lower() != "authorization"}
     return filtered or None
+
+
+def _client_forwarded_authorization_headers(
+    mcp_server: MCPServer,
+    oauth2_headers: Optional[dict[str, str]],
+    raw_headers: Optional[dict[str, str]],
+    user_api_key_auth: Optional[UserAPIKeyAuth],
+) -> Optional[dict[str, str]]:
+    """Egress headers for the client-forwarded-token modes (``true_passthrough`` / ``oauth_delegate``).
+
+    Forwards the caller's ``Authorization`` to the upstream, stripped when
+    ``_should_strip_caller_authorization`` says it was consumed as the LiteLLM admission key. Shared by
+    ``_call_regular_mcp_tool`` and ``server.py``'s ``_prepare_mcp_server_headers`` so the two egress
+    paths cannot drift, mirroring the ``_should_strip_caller_authorization`` split.
+    """
+    extra_headers = oauth2_headers.copy() if oauth2_headers else None
+    if extra_headers and _should_strip_caller_authorization(
+        mcp_server=mcp_server,
+        raw_headers=raw_headers,
+        user_api_key_auth=user_api_key_auth,
+    ):
+        return _without_authorization(extra_headers)
+    return extra_headers
 
 
 def _extract_upstream_auth_failure(
@@ -1316,12 +1339,15 @@ class MCPServerManager:
                 delegate_server_ids = [
                     server.server_id
                     for server in self.get_registry().values()
-                    if getattr(server, "auth_type", None) == MCPAuth.oauth2
-                    and getattr(server, "delegate_auth_to_upstream", False) is True
-                    # M2M servers must not be exposed anonymously: an
-                    # unauthenticated caller would get LiteLLM to proxy tool
-                    # calls using its stored client_credentials.
-                    and not server.has_client_credentials
+                    if (
+                        getattr(server, "auth_type", None) == MCPAuth.oauth2
+                        and getattr(server, "delegate_auth_to_upstream", False) is True
+                        # M2M servers must not be exposed anonymously: an
+                        # unauthenticated caller would get LiteLLM to proxy tool
+                        # calls using its stored client_credentials.
+                        and not server.has_client_credentials
+                    )
+                    or getattr(server, "auth_type", None) == MCPAuth.true_passthrough
                 ]
                 combined_servers.update(delegate_server_ids)
 
@@ -2647,6 +2673,8 @@ class MCPServerManager:
             server is not None
             and (
                 server.is_oauth_passthrough
+                or server.is_true_passthrough
+                or server.is_oauth_delegate
                 or (
                     server.auth_type == MCPAuth.oauth2
                     and getattr(server, "delegate_auth_to_upstream", False) is True
@@ -3225,6 +3253,13 @@ class MCPServerManager:
                     user_api_key_auth=user_api_key_auth,
                 ):
                     extra_headers = _without_authorization(extra_headers)
+        elif mcp_server.is_true_passthrough or mcp_server.is_oauth_delegate:
+            extra_headers = _client_forwarded_authorization_headers(
+                mcp_server=mcp_server,
+                oauth2_headers=oauth2_headers,
+                raw_headers=raw_headers,
+                user_api_key_auth=user_api_key_auth,
+            )
 
         if mcp_server.extra_headers and raw_headers:
             if extra_headers is None:

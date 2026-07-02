@@ -218,6 +218,12 @@ class MCPRequestHandler:
             # when EVERY target is auth_type=oauth2 with delegate_auth_to_upstream
             # set; fails closed otherwise.
             validated_user_api_key_auth = UserAPIKeyAuth()
+        elif MCPRequestHandler._target_servers_are_true_passthrough(
+            path=request_route,
+            mcp_servers=mcp_servers,
+            client_ip=IPAddressUtils.get_mcp_client_ip(request),
+        ):
+            validated_user_api_key_auth = UserAPIKeyAuth()
         elif oauth2_headers:
             # Authorization on a non-delegated server: the bearer must be a real
             # LiteLLM credential, so a failed validation is a genuine 401/403 and
@@ -382,6 +388,33 @@ class MCPRequestHandler:
             # so allowing anonymous bypass would let any external caller invoke
             # tools authenticated as LiteLLM's service account.
             if server.has_client_credentials:
+                return False
+        return True
+
+    @staticmethod
+    def _target_servers_are_true_passthrough(
+        path: str, mcp_servers: Optional[list[str]], client_ip: Optional[str]
+    ) -> bool:
+        """
+        True only when EVERY MCP server the request targets is ``auth_type == true_passthrough``.
+        Fails closed when any target does not opt in or cannot be resolved.
+
+        Used by :meth:`process_mcp_request` to skip LiteLLM admission auth entirely: the gateway is a
+        transparent proxy and the caller's ``Authorization`` is an upstream token, never a LiteLLM key.
+        Mirrors :meth:`_target_servers_delegate_auth_to_upstream`; a mixed-target request keeps normal auth.
+        """
+        from litellm.proxy._experimental.mcp_server.mcp_server_manager import (
+            global_mcp_server_manager,
+        )
+        from litellm.types.mcp import MCPAuth
+
+        target_names = MCPRequestHandler._resolve_target_server_names(path=path, mcp_servers_header=mcp_servers)
+        if not target_names:
+            return False
+
+        for name in target_names:
+            server = global_mcp_server_manager.get_mcp_server_by_name(name, client_ip=client_ip)
+            if server is None or server.auth_type != MCPAuth.true_passthrough:
                 return False
         return True
 
