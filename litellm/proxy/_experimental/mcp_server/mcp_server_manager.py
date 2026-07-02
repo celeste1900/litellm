@@ -818,6 +818,7 @@ class MCPServerManager:
                     "subject_token_type",
                     "urn:ietf:params:oauth:token-type:access_token",
                 ),
+                token_exchange_profile=server_config.get("token_exchange_profile", "rfc8693"),
                 allow_sampling=bool(server_config.get("allow_sampling", False)),
                 allow_elicitation=bool(server_config.get("allow_elicitation", False)),
                 timeout=server_config.get("timeout", None),
@@ -1201,6 +1202,8 @@ class MCPServerManager:
             audience=(credentials_dict.get("audience") if credentials_dict else None),
             subject_token_type=(credentials_dict.get("subject_token_type") if credentials_dict else None)
             or "urn:ietf:params:oauth:token-type:access_token",
+            token_exchange_profile=(credentials_dict.get("token_exchange_profile") if credentials_dict else None)
+            or "rfc8693",
             timeout=getattr(mcp_server, "timeout", None),
         )
         _warn_internal_delegate_pkce_if_applicable(new_server, source="database")
